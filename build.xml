@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:ivy="antlib:org.apache.ivy.ant" 
+	name="Avantic Test" default="install" basedir=".">
+
+	<property environment="env" />
+
+	<property name="projectName" value="${ant.project.name}" />
+
+	<property name="src.dir" location="src" />
+	<property name="build.dir" location="bin" />
+	<property name="dist.dir" location="dist" />
+	<property name="lib.dir" value="lib" />
+	<property name="lib.dir.src" location="${lib.dir}/src" />
+	<property name="lib.dir.cp" location="${lib.dir}/comp" />
+
+	<property name="jsp.dir.name" value="avantic-test" />
+	<property name="package.name" value="${jsp.dir.name}.war" />
+	<property name="webapp.dir" value="${env.TOMCAT_HOME}/webapps" />
+
+	<property name="pages.dir" value="pages" />
+	<property name="resources.dir" value="resources" />
+
+	<!-- put everything in a temp folder with the right structure during the build -->
+	<property name="temp.dir" value="temp" />
+	<property name="temp.dir.web-inf" value="${temp.dir}/WEB-INF" />
+	<property name="temp.dir.lib" value="${temp.dir.web-inf}/lib" />
+	<property name="temp.dir.classes" value="${temp.dir.web-inf}/classes" />
+	<property name="temp.dir.meta-inf" value="${temp.dir}/META-INF" />
+
+	<property name="package.file" value="${dist.dir}/${package.name}" />
+
+	<property name="major-version-number" value="1" />
+	<property name="compile.version" value="10" />
+	<property name="ivy-file" value="ivy.xml" />
+
+	<target name="resolve" description="Resolve the third party dependencies">
+		<ivy:info />
+
+		<ivy:resolve file="${ivy-file}" conf="binary,sources,comp" />
+		<ivy:retrieve pattern="${lib.dir}/[artifact]-[revision].[ext]" conf="binary" />
+		<ivy:retrieve pattern="${lib.dir.src}/[artifact]-[type]-[revision].[ext]" conf="sources" />
+		<ivy:retrieve pattern="${lib.dir.cp}/[artifact]-[type]-[revision].[ext]" conf="comp" />
+	</target>
+
+	<!-- external libraries classpath, we don't need sources and javadoc -->
+	<path id="classpath">
+		<fileset dir="${basedir}/">
+			<include name="${lib.dir}/*.jar" />
+			<exclude name="${lib.dir}/*sources.jar" />
+			<exclude name="${lib.dir}/*javadoc.jar" />
+			<exclude name="${lib.dir.src}/*" />
+			<exclude name="${lib.dir.cp}/*" />
+		</fileset>
+	</path>
+
+	<!-- To work with external libraries, need classpath to compile -->
+	<target name="compile" depends="prepare, resolve" description="compile the source ">
+		<javac source="${compile.version}" target="${compile.version}" includeantruntime="false" srcdir="${src.dir}" 
+			destdir="${temp.dir.classes}" classpathref="classpath" debug="true" />
+	</target>
+
+	<!-- constructs the external libraries classpath name -->
+	<pathconvert property="classpath.name" pathsep=" ">
+		<path refid="classpath" />
+		<mapper>
+			<chainedmapper>
+				<flattenmapper />
+				<globmapper from="*.jar" to="lib/*.jar" />
+			</chainedmapper>
+		</mapper>
+	</pathconvert>
+
+	<target name="copy-dependencies">
+		<mkdir dir="${dist.lib.dir}" />
+
+		<copy todir="${dist.lib.dir}">
+			<fileset dir="${lib.dir}">
+				<exclude name="**/src/**" />
+				<exclude name="**/compile/**" />
+			</fileset>
+		</copy>
+	</target>
+
+	<!-- jar it, and declares the ext libraries in manifest.mf file -->
+	<target name="war-pack" depends="compile, copy-dependencies" description="package, output to JAR">
+		<echo message="classpath.name : ${classpath.name} " />
+		
+		<buildnumber />
+
+		<property name="version-number" value="${major-version-number}.${build.number}" />
+
+		<!-- copy the config files -->
+		<copy file="${resources.dir}/MANIFEST.MF" tofile="${temp.dir.meta-inf}/MANIFEST.MF" overwrite="true" />
+		<copy file="${resources.dir}/web.xml" tofile="${temp.dir.web-inf}/web.xml" overwrite="true" />
+	<!-- <copy file="${resources.dir}/managed-beans.xml" tofile="${temp.dir.web-inf}/managed-beans.xml" overwrite="true" /> -->
+	<!-- <copy file="${resources.dir}/navigation-rules.xml" tofile="${temp.dir.web-inf}/navigation-rules.xml" overwrite="true" /> -->
+
+		<copy todir="${temp.dir.classes}">
+			<fileset dir="${src.dir}">
+				<include name="**/*.xml" />
+			</fileset>
+		</copy>
+
+		<!-- the ant war task. with all resources in place, create the war file -->
+		<war destfile="${package.file}" webxml="${temp.dir.web-inf}/web.xml" basedir="${temp.dir}">
+			<fileset dir="${pages.dir}" />
+			<lib dir="${dist.lib.dir}" />
+			<classes dir="${temp.dir.classes}" />
+			
+			<manifest>
+				<attribute name="Implementation-Version" value="${version-number}" />
+				<attribute name="Main-Class" value="${main-class}" />
+				<attribute name="Class-Path" value="${classpath.name}" />
+				<attribute name="Automatic-Module-Name" value="${automatic.module}" />
+			</manifest>
+		</war>
+	</target>
+
+	<target name="clean" description="clean up">
+		<delete dir="${build.dir}" />
+		<delete dir="${dist.dir}" />
+		<delete dir="${lib.dir}" />
+
+		<delete>
+			<fileset dir="${dist.dir}" includes="**/*"/>
+		</delete>
+		<delete dir="${temp.dir}" />
+		<delete dir="${temp.dir.classes}" />
+		<delete dir="${temp.dir.meta-inf}" />
+		<delete dir="${temp.dir.web-inf}" />
+	</target>
+
+	<target name="prepare" depends="clean">
+		<mkdir dir="${dist.dir}" />
+		<mkdir dir="${temp.dir}" />
+		<mkdir dir="${temp.dir.lib}" />
+		<mkdir dir="${temp.dir.meta-inf}" />
+		<mkdir dir="${temp.dir.web-inf}" />
+		<mkdir dir="${temp.dir.classes}" />
+	</target>
+	
+	<!-- JUST DEPLOY THE JSP's (without rebuilding the entire project) -->
+    <target name="jsps">
+      <copy todir="${webapp.dir}/${jsp.dir.name}">
+        <fileset dir="${pages.dir}">
+          <include name="**/*.jsp"/>
+          <include name="**/*.html"/>
+          <include name="**/*.css"/>
+          <include name="**/*.gif"/>
+          <include name="**/*.jpg"/>
+          <include name="**/*.png"/>
+          <include name="**/*.js"/>
+        </fileset>
+      </copy>
+    </target>	
+
+	<!-- Default, run this -->
+	<target name="install" depends="war-pack" >
+		<copy file="${package.file}" tofile="${webapp.dir}/${package.name}" overwrite="true" />
+	</target>
+</project>
